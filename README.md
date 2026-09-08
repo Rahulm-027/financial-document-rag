@@ -137,6 +137,12 @@ The system indexes public SEC filings. These are publicly available regulatory d
 
 The following examples are taken directly from the running system.
 
+### Interactive Demo
+
+The Streamlit interface supports natural-language financial queries and exposes retrieval strategy, confidence, citations, evidence chunks, and numerical verification.
+
+![Financial Document Intelligence — Streamlit Demo](docs/streamlit_demo.png)
+
 **Q1 — Numerical query (Apple net sales)**
 
 > *"What was Apple's total net sales in 2023?"*

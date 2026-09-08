@@ -280,6 +280,23 @@ financial-document-rag/
 
 ---
 
+## Quick Start
+
+```bash
+git clone https://github.com/Rahulm-027/financial-document-rag.git
+cd financial-document-rag
+
+python -m venv .venv
+
+# Windows
+.venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Launch the application
+streamlit run src/ui/app.py
+
 ## Installation
 
 ```bash

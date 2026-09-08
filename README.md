@@ -375,4 +375,4 @@ pytest tests/ -v
 
 ## License
 
-This project does not currently include a license file. An MIT License is recommended for an open-source portfolio project. See [choosealicense.com](https://choosealicense.com/licenses/mit/) for the standard text.
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.

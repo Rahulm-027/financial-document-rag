@@ -1,0 +1,191 @@
+# ============================================================
+# Financial RAG System — Central Configuration
+# ============================================================
+
+# ---- API Configuration --------------------------------------
+# The system uses Google Gemini through the OpenAI-compatible endpoint.
+# Set GEMINI_API_KEY in your environment (or .env file).
+# If only OPENAI_API_KEY is set, the system falls back to OpenAI.
+#
+# Never commit API keys to version control.
+openai:
+  model: "gemini-3.8-flash"          # Used for chart descriptions + generation
+  vision_model: "gemini-3.8-flash"   # Vision-capable model for chart parsing
+  base_url: "https://generativelanguage.googleapis.com/v1beta/openai/"
+  max_tokens: 1024
+  #temperature: 0.0                   # Deterministic generation for financial QA
+
+# ---- Embedding Model ----------------------------------------
+embeddings:
+  model: "BAAI/bge-base-en-v1.5"
+  device: "cpu"                 # "cuda" if GPU available
+  batch_size: 32
+  normalize: true
+
+# ---- FAISS Indexes ------------------------------------------
+# Two separate indexes are built during ingestion:
+#   text       : text chunks only          (for baseline A in evaluation)
+#   multimodal : text + table + chart      (for baselines B and C)
+# This ensures the A-vs-B comparison is fair — only modality differs.
+faiss:
+  index_type: "IndexFlatIP"     # Inner product (cosine after normalization)
+  index_path: "data/indexes/faiss_multimodal.index"
+  metadata_path: "data/indexes/faiss_multimodal_metadata.jsonl"
+
+faiss_text:
+  text_index_path: "data/indexes/faiss_text.index"
+  text_metadata_path: "data/indexes/faiss_text_metadata.jsonl"
+
+faiss_multimodal:
+  mm_index_path: "data/indexes/faiss_multimodal.index"
+  mm_metadata_path: "data/indexes/faiss_multimodal_metadata.jsonl"
+
+# ---- BM25 ---------------------------------------------------
+bm25:
+  index_path: "data/indexes/bm25.pkl"
+  k1: 1.5                       # Term frequency saturation
+  b: 0.75                       # Length normalization
+
+# ---- Chunking -----------------------------------------------
+chunking:
+  text:
+    strategy: "semantic"        # heading-aware semantic splitting
+    chunk_size: 512             # tokens
+    chunk_overlap: 64
+  table:
+    strategy: "preserve"        # keep entire table together
+    max_tokens: 1024            # if table exceeds this, split by row groups
+  chart:
+    strategy: "description"     # VLM-generated structured text
+
+# ---- Retrieval ----------------------------------------------
+retrieval:
+  dense_top_k: 20
+  bm25_top_k: 20
+  rrf_k: 60                     # RRF constant (standard: 60)
+  final_top_k: 20               # candidates passed to reranker
+
+# ---- Reranker -----------------------------------------------
+reranker:
+  model: "BAAI/bge-reranker-base"
+  device: "cpu"
+  top_k: 5                      # final chunks passed to LLM
+
+# ---- Query Classifier ----------------------------------------
+query_classifier:
+  # Weight adjustments per query type
+  # [dense_weight, bm25_weight]
+  weights:
+    factual:      [0.5, 0.5]
+    numerical:    [0.3, 0.7]    # BM25 stronger for exact numbers
+    comparison:   [0.5, 0.5]
+    chart_trend:  [0.7, 0.3]    # Dense stronger for trend/conceptual
+    cross_company: [0.5, 0.5]
+
+# ---- Generation ---------------------------------------------
+generation:
+  max_context_chunks: 5
+  # evidence_score_filter: minimum reranker score for a chunk to be passed
+  # to the LLM.  The reranker's sigmoid score is NOT a calibrated probability,
+  # so 0.0 (disabled) is the correct default — abstention is handled by the
+  # LLM judging evidence quality, not by a score threshold.
+  # Only set this above 0.0 if you have empirically measured recall vs precision
+  # on a held-out set and confirmed the threshold improves answer quality.
+  evidence_score_filter: 0.0
+  abstention_message: "Insufficient evidence found in the indexed documents to answer this question."
+  system_prompt: |
+    You are a precise financial analyst assistant. Answer ONLY using the provided evidence chunks.
+    If the evidence does not contain sufficient information, respond with exactly:
+    "Insufficient evidence found in the indexed documents to answer this question."
+    
+    Always:
+    - Cite the source document, company, year, and page number for every claim
+    - Use exact numbers from the evidence — do NOT estimate or round unless evidence does
+    - If comparing two values, show both values and the delta/percentage change
+
+# ---- Numerical Verification ---------------------------------
+numerical_verification:
+  enabled: true
+  tolerance: 0.02               # 2% tolerance for rounding differences
+  flag_on_mismatch: true
+
+# ---- Evaluation ---------------------------------------------
+evaluation:
+  test_set_path: "src/evaluation/test_set.py"
+  recall_k: [1, 3, 5]
+  ndcg_k: [5]
+  faithfulness_model: "gemini-1.5-flash"   # Used as LLM judge
+  output_path: "data/results/eval_results.json"
+
+# ---- Ingestion ----------------------------------------------
+ingestion:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  chunks_path: "data/processed/chunks.jsonl"
+  supported_formats: [".pdf"]
+  min_text_length: 30           # ignore very short text blocks
+  image_resolution_dpi: 150     # for chart page rasterization
+
+# ---- Logging ------------------------------------------------
+logging:
+  level: "INFO"
+  log_file: "data/logs/pipeline.log"
+
+# ---- Documents ----------------------------------------------
+# All URLs point directly to the SEC EDGAR filing PDFs.
+# sha256 checksums can be filled in after download for reproducibility:
+#   sha256sum data/raw/<filename>
+#
+# Known data issue: Tesla_10K_2023.pdf from the EDGAR URL above may be
+# an image-only (scanned) PDF with no extractable text layer.  If the
+# pipeline logs "0 elements" for Tesla, download the text-layer PDF from
+# Tesla's IR page instead and update the url below.
+documents:
+  - company: "Tesla"
+    year: 2023
+    type: "10-K"
+    filename: "Tesla_10K_2023.pdf"
+    url: "https://ir.tesla.com/_flysystem/s3/sec/000095017024020448/tsla-20231231.pdf"
+    sec_cik: "0001318605"
+    sha256: null
+    notes: "If this produces 0 text elements, the PDF may be image-only. Try the EDGAR viewer PDF."
+
+  - company: "Tesla"
+    year: 2023
+    type: "Earnings_Deck"
+    filename: "Tesla_Q3_2023_Update.pdf"
+    url: "https://digitalassets.tesla.com/tesla-contents/image/upload/IR/TSLA-Q3-2023-Update.pdf"
+    sec_cik: "0001318605"
+    sha256: null
+
+  - company: "Apple"
+    year: 2023
+    type: "10-K"
+    filename: "Apple_10K_2023.pdf"
+    url: "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/aapl-20230930.pdf"
+    sec_cik: "0000320193"
+    sha256: null
+
+  - company: "Microsoft"
+    year: 2023
+    type: "10-K"
+    filename: "Microsoft_10K_2023.pdf"
+    url: "https://www.sec.gov/Archives/edgar/data/789019/000078901923000039/msft-20230630.pdf"
+    sec_cik: "0000789019"
+    sha256: null
+
+  - company: "Nvidia"
+    year: 2024
+    type: "10-K"
+    filename: "Nvidia_10K_2024.pdf"
+    url: "https://www.sec.gov/Archives/edgar/data/1045810/000104581024000029/nvda-20240128.pdf"
+    sec_cik: "0001045810"
+    sha256: null
+
+  - company: "Amazon"
+    year: 2023
+    type: "10-K"
+    filename: "Amazon_10K_2023.pdf"
+    url: "https://www.sec.gov/Archives/edgar/data/1018724/000101872424000008/amzn-20231231.pdf"
+    sec_cik: "0001018724"
+    sha256: null

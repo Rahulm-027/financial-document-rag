@@ -296,6 +296,7 @@ pip install -r requirements.txt
 
 # Launch the application
 streamlit run src/ui/app.py
+```
 
 ## Installation
 
